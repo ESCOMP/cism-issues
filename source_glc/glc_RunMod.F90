@@ -134,14 +134,21 @@
          ! TODO(wjs, 2015-03-23) We will need a loop over instances, either here or
          ! around the call to glc_run
          
-         call glad_gcm (params = ice_sheet, instance_index = 1,        &
+      !  n = 1 ! instance index BK: to do: generalize for multiple indexes
+         do n=1,ice_sheet%ninstances
+         call glad_gcm (params = ice_sheet, instance_index = n,                  &
                         time = nint(thour),                            &
-                        qsmb = qsmb, tsfc = tsfc,                      &
-                        ice_covered = ice_covered, topo = topo,        &
-                        rofi = rofi, rofl = rofl, hflx = hflx,         &
-                        ice_sheet_grid_mask=ice_sheet_grid_mask,       &
+                        qsmb               = cpl_bundles(n)%qsmb,                &
+                        tsfc               = cpl_bundles(n)%tsfc,                &
+                        ice_covered        = cpl_bundles(n)%ice_covered,         &
+                        topo               = cpl_bundles(n)%topo,                &
+                        rofi               = cpl_bundles(n)%rofi,                &
+                        rofl               = cpl_bundles(n)%rofl,                &
+                        hflx               = cpl_bundles(n)%hflx,                &
+                        ice_sheet_grid_mask= cpl_bundles(n)%ice_sheet_grid_mask, &
                         valid_inputs=valid_inputs,                     &
                         ice_tstep = ice_tstep)
+         end do
 
      else    ! use PDD scheme
 
@@ -168,7 +175,9 @@
    !-----------------------------------------------------------------------
 
    ! TODO loop over instances
-   call glc_history_write(ice_sheet%instances(1), EClock)
+   do n=1,ice_sheet%ninstances
+      call glc_history_write(ice_sheet%instances(n), EClock)
+   end do
    
 !-----------------------------------------------------------------------
 !EOC

@@ -76,9 +76,10 @@
    use glad_main
 
    use glc_fields, only: glc_allocate_fields, ice_sheet,   &
-                         tsfc, qsmb,       &
-                         ice_covered, topo,   rofi,   rofl,  hflx,  &
-                         ice_sheet_grid_mask
+                         cpl_bundles
+!                        tsfc, qsmb,       &
+!                        ice_covered, topo,   rofi,   rofl,  hflx,  &
+!                        ice_sheet_grid_mask
 
    use glc_override_frac, only: init_glc_frac_overrides
    use glc_constants
@@ -105,6 +106,8 @@
 
   character(fname_length) ::  &
       paramfile        ! Name of the top-level configuration file
+  character(fname_length),allocatable,dimension(:) ::  &
+      paramfiles       ! Names of the top-level configuration files   BK mods
  
   character(fname_length) ::  &
       cesm_restart_file  ! Name of the hotstart file to be used for a restart
@@ -115,7 +118,7 @@
   ! Scalars which hold information about the global grid --------------
  
   integer (i4) ::  &
-      i,j              ! Array index counters
+      i,j,n            ! Array index counters
 
   integer (i4) :: &
       nml_error        ! namelist i/o error flag
@@ -147,6 +150,8 @@
   integer, parameter :: days_in_year = 365
   
   namelist /cism_params/  paramfile, cism_debug, ice_flux_routing, zero_gcm_fluxes, test_coupling
+
+   character(*),parameter :: subName = "(glc_initialize) "
  
 ! TODO - Write version info?
 !-----------------------------------------------------------------------
@@ -271,9 +276,16 @@
 
   unit = shr_file_getUnit()
 
+   allocate(paramfiles(2))    ! BK hack: size needs to be more general
+   paramfiles(1) = paramfile  ! BK hack to have multiple instances
+   paramfiles(2) = paramfile  ! BK hack to have multiple instances, duplicate as first step
+
+  write(stdout,*) subName,"call glad_initialize() with allocate(paramfiles(2)) "
+  call shr_sys_flush(stdout)
   call glad_initialize(ice_sheet,                            &
                        climate_tstep,                        &
-                       (/paramfile/),                        &
+!                      (/paramfile/),                        & ! BK was hardwired for one instance
+                         paramfiles ,                        & ! BK hack to have multiple instances
                        daysinyear = days_in_year,            &
                        start_time = nhour_glad,             &
                        gcm_restart = cesm_restart,           &
@@ -302,24 +314,36 @@
      forcing_start_time = nhour_glad - days_this_year * 24
   end if
 
-  call glad_initialize_instance(ice_sheet, instance_index = 1, &
+  write(stdout,*) subName,"allocate(cpl_bundles(:)) for ninstances = ",ice_sheet%ninstances
+  call shr_sys_flush(stdout)
+  allocate(cpl_bundles(ice_sheet%ninstances))
+  ice_sheet%instances(1)%region_code  = "greenland1"  ! BK: hack, this should be in cism.config file
+  ice_sheet%instances(2)%region_code  = "greenland2"
+
+  do n=1,ice_sheet%ninstances  ! BK loop over n instances
+    write(stdout,*) subName,"initialize instance, n= ",n
+    call glad_initialize_instance(ice_sheet, instance_index = n, &
        my_forcing_start_time = forcing_start_time, &
        test_coupling = test_coupling)
 
-  call glc_indexing_init(ice_sheet, instance_index = 1)
+     write(stdout,*) subName,"call glc_indexing_init..."
+     call glc_indexing_init(ice_sheet, instance_index = n)
+     write(stdout,*) subName,".... glc_indexing_init return"
   
-  call glc_allocate_fields(nx, ny)
+     call shr_sys_flush(stdout)
+     call glc_allocate_fields(cpl_bundles(n),nx, ny)
 
-  tsfc(:,:) = 0._r8
-  qsmb(:,:) = 0._r8
+     cpl_bundles(n)%tsfc(:,:) = 0._r8
+     cpl_bundles(n)%qsmb(:,:) = 0._r8
   
-  call glad_get_initial_outputs(ice_sheet, instance_index = 1, &
-                                ice_covered = ice_covered, &
-                                topo = topo, &
-                                rofi = rofi, &
-                                rofl = rofl, &
-                                hflx = hflx, &
-                                ice_sheet_grid_mask = ice_sheet_grid_mask)
+     call glad_get_initial_outputs(ice_sheet, instance_index = n, &
+                                   ice_covered         = cpl_bundles(n)%ice_covered, &
+                                   topo                = cpl_bundles(n)%topo, &
+                                   rofi                = cpl_bundles(n)%rofi, &
+                                   rofl                = cpl_bundles(n)%rofl, &
+                                   hflx                = cpl_bundles(n)%hflx, &
+                                   ice_sheet_grid_mask = cpl_bundles(n)%ice_sheet_grid_mask)
+  end do
   
   call glad_initialization_wrapup(ice_sheet)
 
@@ -357,7 +381,9 @@
 !
 !-----------------------------------------------------------------------
 
-   call glc_history_init()
+   do n=1,ice_sheet%ninstances ! BK loop over instances
+      call glc_history_init(ice_sheet%instances(n))
+   end do
 
 !-----------------------------------------------------------------------
 !
@@ -367,7 +393,9 @@
 
    if (.not. cesm_restart) then
       ! TODO loop over instances
-      call glc_history_write(ice_sheet%instances(1), EClock, initial_history=.true.)
+      do n=1,ice_sheet%ninstances ! BK loop over instances
+         call glc_history_write(ice_sheet%instances(n), EClock, initial_history=.true.)
+      end do
    end if
    
 !-----------------------------------------------------------------------

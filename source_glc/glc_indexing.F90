@@ -16,6 +16,8 @@ module glc_indexing
 #include "shr_assert.h"
   use shr_log_mod, only : errMsg => shr_log_errMsg
   use shr_kind_mod, only: R8=>SHR_KIND_R8
+  use glc_constants, only : stdout       ! BK
+  use shr_sys_mod, only : shr_sys_flush  ! BK
 
   implicit none
   private
@@ -37,6 +39,8 @@ module glc_indexing
 
   integer, allocatable, private :: local_indices(:,:)  ! mapping from (i,j) to 1..npts
   integer, allocatable, private :: global_indices(:,:) ! unique indices across all procs (matches indexing on mapping files)
+
+
   
 contains
 
@@ -59,14 +63,22 @@ contains
     ! !LOCAL VARIABLES:
     
     character(len=*), parameter :: subname = 'glc_indexing_init'
+    logical,save :: firstCall = .true. !  ! BK: hack, module data needs to be external
     !-----------------------------------------------------------------------
 
     call glad_get_grid_size(params, instance_index, &
          ewn = nx, nsn = ny, npts = npts, &
          ewn_tot = nx_tot, nsn_tot = ny_tot, npts_tot = npts_tot)
     
+     write(stdout,*) subname,"BK: hack, module data needs to be external"
+    if (firstCall) then ! BK: hack, module data needs to be external and belong to an instance
     allocate(local_indices(nx, ny))
     allocate(global_indices(nx, ny))
+       firstCall = .false.
+       write(stdout,*) subname,"firstCall => alloc, BK: hack, module data needs to be external"
+    else
+       write(stdout,*) subname,"!firstCall => don't alloc, BK: hack, module data needs to be external"
+    end if
     
     call glad_get_grid_indices(params, instance_index, global_indices, local_indices)
     

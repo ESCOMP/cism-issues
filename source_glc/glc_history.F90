@@ -20,6 +20,7 @@ module glc_history
   use shr_kind_mod      , only : CL=>SHR_KIND_CL, CXX=>SHR_KIND_CXX
   use glc_exit_mod      , only : exit_glc, sigAbort
   use glc_constants     , only : nml_in, stdout, blank_fmt, ndelim_fmt
+  use glad_type         , only : glad_instance ! BK
   
   implicit none
   private
@@ -40,7 +41,14 @@ module glc_history
   ! then have a loop that creates all history tape objects. Note that the history tape
   ! index should become a field in the history tape class; this is needed to create
   ! unique time flags for each history tape (and possibly other things).
-  class(history_tape_base_type), allocatable :: history_tape
+! class(history_tape_base_type), allocatable :: history_tape
+! class(history_tape_base_type), allocatable :: history_tape(:)  ! BK: allow multiple instances - problem: allocation
+! BK: ? solution: make history_tape part of a glad_instance data type -- no glad is too low level
+   type :: history_tape_inst
+      class(history_tape_base_type), allocatable :: history_tape
+   end type history_tape_inst
+
+   type(history_tape_inst) :: history_tapes(10)  ! BK, hack: 10 regions max
 
   ! max character lengths
   integer, parameter :: len_history_option = CL
@@ -51,7 +59,7 @@ contains
   !------------------------------------------------------------------------
 
   !-----------------------------------------------------------------------
-  subroutine glc_history_init
+  subroutine glc_history_init(instance)
     !
     ! !DESCRIPTION:
     ! Initialize the history_tape instance
@@ -64,24 +72,30 @@ contains
     use history_tape_coupler, only : history_tape_coupler_type
     !
     ! !ARGUMENTS:
+!   class(history_tape_base_type), allocatable, intent(inout) :: history_tape ! BK
+    type(glad_instance) , intent(inout) :: instance
     !
     ! !LOCAL VARIABLES:
     character(len=len_history_vars) :: cesm_history_vars
     character(len=len_history_option) :: history_option
     integer(int_kind) :: history_frequency
+    integer(int_kind) :: n ! glc region/instance index
     
     character(len=*), parameter :: subname = 'glc_history_init'
     !-----------------------------------------------------------------------
 
+    n = instance%region_index
+
+    !BK: need separate namelist files for each ice_sheet region 
     call read_namelist(cesm_history_vars, history_option, history_frequency)
     
     select case (history_option)
     case ('nyears')
-       allocate(history_tape, source = history_tape_standard_type( &
+       allocate(history_tapes(n)%history_tape, source = history_tape_standard_type( &
             history_vars = cesm_history_vars, freq_opt = freq_opt_nyear, &
             freq = history_frequency))
     case ('coupler')
-       allocate(history_tape, source = history_tape_coupler_type( &
+       allocate(history_tapes(n)%history_tape, source = history_tape_coupler_type( &
             history_vars = cesm_history_vars))
     case default
        write(stdout,*) subname//' ERROR: Unhandled history_option: ', trim(history_option)
@@ -108,12 +122,16 @@ contains
     use esmf, only: ESMF_Clock
     !
     ! !ARGUMENTS:
-    type(glad_instance), intent(inout) :: instance
+    type(glad_instance) , intent(inout) :: instance
     type(ESMF_Clock),     intent(in)    :: EClock
     logical, intent(in), optional :: initial_history
-    !-----------------------------------------------------------------------
 
-    call history_tape%write_history(instance, EClock, initial_history)
+    ! !LOCAL VARIABLES:
+    integer(int_kind) :: n ! glc region/instance index
+    !-----------------------------------------------------------------------
+    n = instance%region_index
+
+    call history_tapes(n)%history_tape%write_history(instance, EClock, initial_history)
     
   end subroutine glc_history_write
 
@@ -127,6 +145,7 @@ contains
     !
     ! !DESCRIPTION:
     ! Reads the namelist containing history options
+    ! BK: need separate namelists for each ice_sheet region instance 
     !
     ! !USES:
     use glc_communicate , only: my_task, master_task
@@ -141,11 +160,13 @@ contains
     ! !LOCAL VARIABLES:
     
     integer :: nml_error
+    integer(int_kind) :: n ! glc region/instance index
     
     character(len=*), parameter :: subname = 'read_namelist'
-    !-----------------------------------------------------------------------
 
+    !-----------------------------------------------------------------------
     namelist /cism_history/ cesm_history_vars, history_option, history_frequency
+
 
     ! Set default values
     cesm_history_vars = ' '

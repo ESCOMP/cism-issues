@@ -18,42 +18,48 @@ module glc_import_export
 contains
 !=================================================================================
 
-   subroutine glc_import(x2g)
+   subroutine glc_import(x2g,n)
 
     !-------------------------------------------------------------------
      use glc_indexing, only : vector_to_spatial
-     use glc_fields, only: tsfc, qsmb 
+!    use glc_fields, only: tsfc, qsmb 
+     use glc_fields, only: cpl_bundles
 
     real(r8)   , intent(in) :: x2g(:,:)
+    integer(IN), intent(in) :: n
 
     character(*), parameter :: subName = "(glc_import) "
     !-------------------------------------------------------------------
+    ! BK: to do: extract subset of x2g that belongs to instance n
+    !-------------------------------------------------------------------
 
-    call vector_to_spatial(x2g(index_x2g_Sl_tsrf,:), tsfc)
-    call vector_to_spatial(x2g(index_x2g_Flgl_qice,:), qsmb)
+    call vector_to_spatial(x2g(index_x2g_Sl_tsrf  ,:), cpl_bundles(n)%tsfc)
+    call vector_to_spatial(x2g(index_x2g_Flgl_qice,:), cpl_bundles(n)%qsmb)
 
-    tsfc = tsfc - tkfrz
+    cpl_bundles(n)%tsfc = cpl_bundles(n)%tsfc - tkfrz
 
     !Jer hack fix: 
     !For some land points where CLM sees ocean, and all ocean points, CLM doesn't provide a temperature,
     !and so the incoming temperature is 0.d0.  This gets dropped to -273.15, in the above code.  So,
     !manually reverse this, below, to set to 0C.
-    where (tsfc < -250.d0) tsfc=0.d0 
+    where (cpl_bundles(n)%tsfc < -250.d0) cpl_bundles(n)%tsfc=0.d0 
 
   end subroutine glc_import
 
 !=================================================================================
 
-  subroutine glc_export(g2x)
+  subroutine glc_export(g2x,n)
 
     !-------------------------------------------------------------------
     use glc_indexing, only : nx, ny, spatial_to_vector
-    use glc_fields   , only: ice_covered, topo, rofi, rofl, hflx, &
-                             ice_sheet_grid_mask
+    use glc_fields, only: cpl_bundles
+!   use glc_fields   , only: ice_covered, topo, rofi, rofl, hflx, &
+!                            ice_sheet_grid_mask
     use glc_route_ice_runoff, only: route_ice_runoff    
     use glc_override_frac   , only: frac_overrides_enabled, do_frac_overrides
     
     real(r8)    ,intent(inout) :: g2x(:,:)
+    integer(IN), intent(in) :: n
 
     ! if doing frac overrides, these are the modified versions sent to the coupler;
     ! otherwise they point to the real fields
@@ -80,22 +86,24 @@ contains
 
     character(*), parameter :: subName = "(glc_export) "
     !-------------------------------------------------------------------
+    ! BK: to do: load only subset of g2x that belongs to instance n
+    !-------------------------------------------------------------------
 
     ! If overrides of glc fraction are enabled (for testing purposes), then apply
     ! these overrides, otherwise use the real version of ice_covered and topo
     if (frac_overrides_enabled()) then
-       allocate(ice_covered_to_cpl(lbound(ice_covered,1):ubound(ice_covered,1), &
-                                   lbound(ice_covered,2):ubound(ice_covered,2)))
-       allocate(topo_to_cpl(lbound(topo,1):ubound(topo,1), &
-                            lbound(topo,2):ubound(topo,2)))
+       allocate(ice_covered_to_cpl(lbound(cpl_bundles(n)%ice_covered,1):ubound(cpl_bundles(n)%ice_covered,1), &
+                                   lbound(cpl_bundles(n)%ice_covered,2):ubound(cpl_bundles(n)%ice_covered,2)))
+       allocate(topo_to_cpl(lbound(cpl_bundles(n)%topo,1):ubound(cpl_bundles(n)%topo,1), &
+                            lbound(cpl_bundles(n)%topo,2):ubound(cpl_bundles(n)%topo,2)))
             
-       ice_covered_to_cpl = ice_covered
-       topo_to_cpl = topo
-       call do_frac_overrides(ice_covered_to_cpl, topo_to_cpl, ice_sheet_grid_mask)
+       ice_covered_to_cpl = cpl_bundles(n)%ice_covered
+       topo_to_cpl = cpl_bundles(n)%topo
+       call do_frac_overrides(ice_covered_to_cpl, topo_to_cpl, cpl_bundles(n)%ice_sheet_grid_mask)
        fields_to_cpl_allocated = .true.
     else
-       ice_covered_to_cpl => ice_covered
-       topo_to_cpl => topo
+       ice_covered_to_cpl => cpl_bundles(n)%ice_covered
+       topo_to_cpl        => cpl_bundles(n)%topo
        fields_to_cpl_allocated = .false.
     end if
 
@@ -112,10 +120,10 @@ contains
        rofi_to_ocn = 0._r8
        rofi_to_ice = 0._r8
     else
-       icemask_coupled_fluxes = ice_sheet_grid_mask
-       hflx_to_cpl = hflx
-       rofl_to_cpl = rofl
-       call route_ice_runoff(rofi, rofi_to_ocn, rofi_to_ice)
+       icemask_coupled_fluxes = cpl_bundles(n)%ice_sheet_grid_mask
+       hflx_to_cpl            = cpl_bundles(n)%hflx
+       rofl_to_cpl            = cpl_bundles(n)%rofl
+       call route_ice_runoff(cpl_bundles(n)%rofi, rofi_to_ocn, rofi_to_ice)
     end if
 
     call spatial_to_vector(rofi_to_ocn, g2x(index_g2x_Fogg_rofi,:))
@@ -126,7 +134,7 @@ contains
     call spatial_to_vector(topo_to_cpl, g2x(index_g2x_Sg_topo,:))
     call spatial_to_vector(hflx_to_cpl, g2x(index_g2x_Flgg_hflx,:))
 
-    call spatial_to_vector(ice_sheet_grid_mask, g2x(index_g2x_Sg_icemask,:))
+    call spatial_to_vector(cpl_bundles(n)%ice_sheet_grid_mask, g2x(index_g2x_Sg_icemask,:))
     call spatial_to_vector(icemask_coupled_fluxes, g2x(index_g2x_Sg_icemask_coupled_fluxes,:))
 
     deallocate(icemask_coupled_fluxes)

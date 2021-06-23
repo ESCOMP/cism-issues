@@ -195,7 +195,11 @@ CONTAINS
 
     ! Create initial glc export state
 
-    call glc_export(g2x%rattr)
+    !--- BK: loop over instances to assemble complete g2x%rattr ---
+!   do n=1,ice_sheet%ninstances
+    do n=1,1
+      call glc_export(g2x%rattr,n)
+    end do
 	 
    if (my_task == master_task) then
       write(stdout,F91) 
@@ -285,7 +289,10 @@ subroutine glc_run_mct( EClock, cdata, x2g, g2x)
 
     ! Unpack
 
-    call glc_import(x2g%rattr)
+    !--- BK: extract data specific to each instance ---
+    do n=1,ice_sheet%ninstances
+       call glc_import(x2g%rattr,n)
+    end do
 
     ! Run 
 
@@ -314,7 +321,11 @@ subroutine glc_run_mct( EClock, cdata, x2g, g2x)
     
     ! Pack
 
-    call glc_export(g2x%rattr)
+    !--- BK: loop over instances to assemble complete g2x%rattr ---
+!   do n=1,ice_sheet%ninstances
+    do n=1,1
+      call glc_export(g2x%rattr,n)
+    end do
     
     ! Log output for model date
 
@@ -333,7 +344,9 @@ subroutine glc_run_mct( EClock, cdata, x2g, g2x)
     rest_alarm = seq_timemgr_RestartAlarmIsOn( EClock )
     if (rest_alarm) then
        ! TODO loop over instances
-       call glc_io_write_restart(ice_sheet%instances(1), EClock)
+       do n=1,ice_sheet%ninstances
+          call glc_io_write_restart(ice_sheet%instances(n), EClock)
+       end do
     endif
 
     ! Reset shr logging to original values
